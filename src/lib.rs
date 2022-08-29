@@ -43,7 +43,7 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
 #[cfg(test)]
 mod test {
     use crate::bytes2;
-    // use pretty_assertions::assert_eq;
+    use pretty_assertions::assert_eq;
     use quote::quote;
     use syn::ExprArray;
 
