@@ -33,5 +33,4 @@ publish-verify:
 	$(MAKE) all
 
 publish: publish-verify
-	cargo publish --locked
-	while ! cargo add --dry-run bytes-lit@$(cargo metadata --format-version 1 | jq -r '.packages[0].version') ; do echo waiting; sleep 10; done
+	cargo release --workspace --no-push --no-tag --execute --no-confirm
