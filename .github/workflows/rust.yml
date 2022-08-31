@@ -58,7 +58,7 @@ jobs:
     - run: rustup update
     - run: cargo doc
 
-  publish-verify:
+  publish-dry-run:
     if: "github.ref_protected"
     runs-on: ubuntu-latest
     steps:

@@ -30,9 +30,9 @@ bump-version:
 publish-verify:
 	cargo package --locked
 	cd target/package/bytes-lit-* && \
+		cp ../../../Cargo.lock ./
 		cargo build --locked && \
 		cargo test --locked
-	cargo publish --locked --dry-run
 
 publish: publish-verify
 	cargo publish --locked
