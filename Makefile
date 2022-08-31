@@ -28,5 +28,5 @@ bump-version:
 	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
 publish:
-	cargo workspaces publish --all --force '*' --no-git-commit --yes
+	cargo workspaces publish --all --force '*' --from-git --no-git-commit --yes
 
