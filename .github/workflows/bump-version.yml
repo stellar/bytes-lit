@@ -37,7 +37,3 @@ jobs:
             base: 'main',
             body: '### What\nBump version to ${{ inputs.version }}.\n\n### Why\nTriggered by @${{ github.actor }}.'
           });
-    - name: Push Commit to trigger workflows
-      run: |
-        git commit --allow-empty -m 'trigger workflows'
-        git push origin 'bump-version-${{ inputs.version }}'
