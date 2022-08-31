@@ -25,7 +25,7 @@ clean:
 	cargo clean
 
 bump-version:
-	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom 1.0.0
+	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
 publish-verify:
 	cargo +stable package
