@@ -27,13 +27,6 @@ clean:
 bump-version:
 	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
-publish-verify:
-	cargo package --locked
-	cd target/package/bytes-lit-* && \
-		cp ../../../Cargo.lock ./
-		cargo build --locked && \
-		cargo test --locked
+publish:
+	cargo workspaces publish --all --force '*' --from-git --no-git-commit --yes
 
-publish: publish-verify
-	cargo publish --locked
-	while ! cargo add --dry-run bytes-lit@$(cargo metadata --format-version 1 | jq -r '.packages[0].version') ; do echo waiting; sleep 10; done
