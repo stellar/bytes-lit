@@ -2,7 +2,7 @@ name: Rust
 
 on:
   push:
-    # branches: [main]
+    branches: [main]
   pull_request:
   release:
     types: [published]
@@ -59,7 +59,7 @@ jobs:
     - run: cargo doc
 
   publish-verify:
-    if: "github.ref_protected"
+    # if: "github.ref_protected"
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
