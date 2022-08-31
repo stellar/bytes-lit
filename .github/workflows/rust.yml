@@ -58,15 +58,6 @@ jobs:
     - run: rustup update
     - run: cargo doc
 
-  publish-dry-run:
-    if: "github.ref_protected"
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - run: rustup update
-    - run: rustup target add wasm32-unknown-unknown
-    - run: make publish-verify
-
   publish:
     if: github.event_name == 'release'
     needs: [complete]
