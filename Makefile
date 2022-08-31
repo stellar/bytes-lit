@@ -33,4 +33,5 @@ publish-verify:
 	$(MAKE) all
 
 publish: publish-verify
-	cargo release --workspace --no-push --no-tag --execute --no-confirm
+	cargo workspaces publish --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes --dry-run
+
