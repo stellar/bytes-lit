@@ -28,7 +28,7 @@ bump-version:
 	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
 publish-verify:
-	cargo package --locked
+	cargo package --locked | cat Cargo.lock
 	cd target/package/bytes-lit-* && \
 		cargo build --locked && \
 		cargo test --locked
