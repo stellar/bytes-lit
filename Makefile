@@ -28,11 +28,9 @@ bump-version:
 	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
 publish-verify:
-	cargo package --locked
-	cd target/package/bytes-lit-* && \
-		cp ../../../Cargo.lock ./
-		cargo build --locked && \
-		cargo test --locked
+	find . -name Cargo.toml | xargs perl -i -pe 's/.*git *=.*//go'
+	cargo publish --locked --dry-run
+	$(MAKE) all
 
 publish: publish-verify
 	cargo publish --locked
