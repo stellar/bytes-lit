@@ -27,11 +27,6 @@ clean:
 bump-version:
 	cargo workspaces version --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes custom $(VERSION)
 
-publish-verify:
-	perl -i -pe 's/.*git *=.*//go' Cargo.toml
-	cargo publish --locked --dry-run
-	$(MAKE) all
-
-publish: publish-verify
-	cargo workspaces publish --all --force '*' --allow-branch '*' --no-git-tag --no-git-push --yes --dry-run
+publish:
+	cargo workspaces publish --all --force '*' --allow-branch '*' --no-git-commit --no-git-tag --no-git-push --yes
 
