@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - uses: stellar/actions/rust-cache@main
     - run: rustup update
     - run: cargo build
     - run: cargo test
@@ -48,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - uses: stellar/actions/rust-cache@main
     - run: rustup update
     - run: cargo doc
 
@@ -57,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - uses: stellar/actions/rust-cache@main
     - run: rustup update
     - run: rustup target add wasm32-unknown-unknown
     - run: cargo install --locked --version 0.2.35 cargo-workspaces
