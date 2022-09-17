@@ -2,7 +2,7 @@
 //!
 //! Currently supports only integer literals of unbounded size.
 
-use std::str::FromStr;
+use std::{convert::TryInto, str::FromStr};
 
 use num_bigint::BigUint;
 use proc_macro::TokenStream;
@@ -35,9 +35,39 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
         Ok(lit) => lit,
         Err(e) => return e.to_compile_error(),
     };
+
+    let raw = lit.to_string();
+    let normalized = raw.replace(['-', '_'], "");
+    let (bits_per_digit, prefix_len) = if normalized.starts_with("0x") {
+        (4 /* base 16 */, 2)
+    } else if raw.starts_with("0o") {
+        (2 /* base 8 */, 2)
+    } else if raw.starts_with("0b") {
+        (1 /* base 2 */, 2)
+    } else {
+        (4 /* base 10 */, 0)
+    };
+    let mut leading_zero_count: u64 = 0;
+    for d in normalized[prefix_len..].chars() {
+        if d != '0' {
+            break;
+        }
+        leading_zero_count += 1;
+    }
+    let leading_zero_bits = bits_per_digit * leading_zero_count;
+
     let int = BigUint::from_str(lit.base10_digits()).unwrap();
-    let bytes = int.to_bytes_be();
-    quote! { [#(#bytes),*] }
+    let int_bits = int.bits();
+    let int_bytes = int.to_bytes_be();
+    let int_len = int_bytes.len();
+
+    let total_bits = leading_zero_bits.checked_add(int_bits).expect("overflow");
+    let total_len_u64 = (total_bits.checked_add(7).expect("overflow")) / 8;
+    let total_len: usize = total_len_u64.try_into().expect("overflow");
+    let mut total_bytes: Vec<u8> = vec![0; total_len];
+    total_bytes[total_len - int_len..].copy_from_slice(&int_bytes);
+
+    quote! { [#(#total_bytes),*] }
 }
 
 #[cfg(test)]
@@ -46,6 +76,24 @@ mod test {
     use pretty_assertions::assert_eq;
     use quote::quote;
     use syn::ExprArray;
+
+    #[test]
+    fn leading_zeros() {
+        let tokens = bytes2(quote! {0x00_928374892abc});
+        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+        let expect = syn::parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]);
+        assert_eq!(parsed, expect);
+
+        let tokens = bytes2(quote! {0x00_92837_4892abcE100});
+        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+        let expect = syn::parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8, 225u8, 0u8]);
+        assert_eq!(parsed, expect);
+
+        let tokens = bytes2(quote! {0b1});
+        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+        let expect = syn::parse_quote!([1u8]);
+        assert_eq!(parsed, expect);
+    }
 
     #[test]
     fn hex() {
