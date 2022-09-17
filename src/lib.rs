@@ -16,6 +16,8 @@ extern crate proc_macro;
 ///
 /// Currently supports only integer literals of unbounded size.
 ///
+/// Leading zeroes are preserved.
+///
 /// ### Examples
 ///
 /// ```ignore
@@ -75,24 +77,55 @@ mod test {
     use crate::bytes2;
     use pretty_assertions::assert_eq;
     use quote::quote;
-    use syn::ExprArray;
+    use syn::{parse_quote, ExprArray};
 
     #[test]
     fn leading_zeros() {
-        let tokens = bytes2(quote! {0x00_928374892abc});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]);
-        assert_eq!(parsed, expect);
-
-        let tokens = bytes2(quote! {0x00_92837_4892abcE100});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8, 225u8, 0u8]);
-        assert_eq!(parsed, expect);
-
-        let tokens = bytes2(quote! {0b1});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([1u8]);
-        assert_eq!(parsed, expect);
+        let table: &[(_, ExprArray)] = &[
+            // Base 16.
+            (
+                quote!(0x00_928374892abc),
+                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]),
+            ),
+            (
+                quote!(0x0_928374892abc),
+                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]),
+            ),
+            (
+                quote!(0x00_92837_4892abcE100),
+                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8, 225u8, 0u8]),
+            ),
+            // Base 8.
+            (quote!(0o377), parse_quote!([255u8])),
+            (quote!(0o400), parse_quote!([1u8, 0u8])),
+            (quote!(0o777), parse_quote!([1u8, 255u8])),
+            (quote!(0o0377), parse_quote!([0u8, 255u8])),
+            // Base 2.
+            (quote!(0b1), parse_quote!([1u8])),
+            (quote!(0b11), parse_quote!([3u8])),
+            (quote!(0b111), parse_quote!([7u8])),
+            (quote!(0b1111), parse_quote!([15u8])),
+            (quote!(0b11111), parse_quote!([31u8])),
+            (quote!(0b111111), parse_quote!([63u8])),
+            (quote!(0b1111111), parse_quote!([127u8])),
+            (quote!(0b11111111), parse_quote!([255u8])),
+            (quote!(0b111111111), parse_quote!([1u8, 255u8])),
+            (quote!(0b1), parse_quote!([1u8])),
+            (quote!(0b01), parse_quote!([1u8])),
+            (quote!(0b001), parse_quote!([1u8])),
+            (quote!(0b0001), parse_quote!([1u8])),
+            (quote!(0b00001), parse_quote!([1u8])),
+            (quote!(0b000001), parse_quote!([1u8])),
+            (quote!(0b0000001), parse_quote!([1u8])),
+            (quote!(0b00000001), parse_quote!([1u8])),
+            (quote!(0b000000001), parse_quote!([0u8, 1u8])),
+        ];
+        for (i, t) in table.iter().enumerate() {
+            let tokens = bytes2(t.0.clone());
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1.clone();
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
     }
 
     #[test]
