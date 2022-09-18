@@ -16,14 +16,50 @@ extern crate proc_macro;
 ///
 /// Currently supports only integer literals of unbounded size.
 ///
-/// Leading zeroes are preserved.
+/// The following integer literal forms are supported, preserve leading zeros in
+/// the final byte representation and always return a consistent number of bytes
+/// given the number of digits inputed.
+/// - Base 2 (binary)
+/// - Base 16 (hex)
+///
+/// For integer literal forms that preserve leading zeros, zeros on the front of
+/// the number are preserved as zeros in the final bytes. For example: `0x0001`
+/// will produce `[0, 1]`.
+///
+/// The following integer literal forms are supported, prohibit leading zeros,
+/// and the number of bytes returned is not based off the number of digits
+/// entered.
+/// - Base 10 (decimal)
+/// - Base 8 (octal)
+///
+/// For integer literal forms that do not have consistent digit to byte lengths,
+/// the number of bytes returned is the minimum number of bytes required to
+/// represent the integer.
 ///
 /// ### Examples
+///
+/// ```ignore
+/// let bytes = bytes!(1);
+/// assert_eq!(bytes, [1]);
+/// ```
+///
+/// ```ignore
+/// let bytes = bytes!(9);
+/// assert_eq!(bytes, [1]);
+/// ```
 ///
 /// ```ignore
 /// let bytes = bytes!(0xfded3f55dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
 /// assert_eq!(bytes, [
 ///     253, 237, 63, 85, 222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114,
+///     250, 111, 250, 174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
+/// ]);
+/// ```
+///
+/// ```ignore
+/// let bytes = bytes!(0x00000000dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
+/// assert_eq!(bytes, [
+///     0, 0, 0, 0, 222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114,
 ///     250, 111, 250, 174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
 /// ]);
 /// ```
@@ -38,34 +74,39 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
         Err(e) => return e.to_compile_error(),
     };
 
+    // Get the raw integer literal as it appears in the token stream.
     let raw = lit.to_string();
-    let normalized = raw.replace(['-', '_'], "");
-    let (bits_per_digit, prefix_len) = if normalized.starts_with("0x") {
-        (4 /* base 16 */, 2)
-    } else if raw.starts_with("0o") {
-        (2 /* base 8 */, 2)
-    } else if raw.starts_with("0b") {
-        (1 /* base 2 */, 2)
-    } else {
-        (4 /* base 10 */, 0)
-    };
-    let mut leading_zero_count: u64 = 0;
-    for d in normalized[prefix_len..].chars() {
-        if d != '0' {
-            break;
-        }
-        leading_zero_count += 1;
-    }
-    let leading_zero_bits = bits_per_digit * leading_zero_count;
 
-    let int = BigUint::from_str(lit.base10_digits()).unwrap();
-    let int_bits = int.bits();
+    // Remove leading negative sign, and any underscores between digits.
+    let normalized = raw.replace(['-', '_'], "");
+
+    // Remove any leading prefix that indicates the base, and use the base to
+    // determine how many bits per leading zero needs to be prefilled into the
+    // bytes generated.
+    let (bits_per_digit, remainder) = match normalized.as_bytes() {
+        [b'0', b'x', r @ ..] => (Some(4), r),
+        [b'0', b'b', r @ ..] => (Some(1), r),
+        [b'0', b'o', r @ ..] | [r @ ..] => (None, r),
+    };
+
+    // Count the leading zero bits by counting the number of leading zeros and
+    // multiplying by the bits per digit.
+    let leading_zero_count = remainder.iter().take_while(|d| **d == b'0').count();
+    let leading_zero_bits = leading_zero_count * bits_per_digit.unwrap_or(0);
+
+    // Convert the integer literal into a base10 number in a string. Any leading
+    // zeros are discarded.
+    let base10 = lit.base10_digits();
+
+    // Convert the string base10 numbers into a big integer. The conversion
+    // should never fail because syn::LitInt already validates the integer.
+    let int = BigUint::from_str(base10).unwrap();
+    let int_bits: usize = int.bits().try_into().expect("overflow");
     let int_bytes = int.to_bytes_be();
     let int_len = int_bytes.len();
 
     let total_bits = leading_zero_bits.checked_add(int_bits).expect("overflow");
-    let total_len_u64 = (total_bits.checked_add(7).expect("overflow")) / 8;
-    let total_len: usize = total_len_u64.try_into().expect("overflow");
+    let total_len = (total_bits.checked_add(7).expect("overflow")) / 8;
     let mut total_bytes: Vec<u8> = vec![0; total_len];
     total_bytes[total_len - int_len..].copy_from_slice(&int_bytes);
 
@@ -83,23 +124,11 @@ mod test {
     fn leading_zeros() {
         let table: &[(_, ExprArray)] = &[
             // Base 16.
-            (
-                quote!(0x00_928374892abc),
-                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]),
-            ),
-            (
-                quote!(0x0_928374892abc),
-                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8]),
-            ),
-            (
-                quote!(0x00_92837_4892abcE100),
-                parse_quote!([0u8, 146u8, 131u8, 116u8, 137u8, 42u8, 188u8, 225u8, 0u8]),
-            ),
-            // Base 8.
-            (quote!(0o377), parse_quote!([255u8])),
-            (quote!(0o400), parse_quote!([1u8, 0u8])),
-            (quote!(0o777), parse_quote!([1u8, 255u8])),
-            (quote!(0o0377), parse_quote!([0u8, 255u8])),
+            (quote!(0x1), parse_quote!([1u8])),
+            (quote!(0x01), parse_quote!([1u8])),
+            (quote!(0x0001), parse_quote!([0u8, 1u8])),
+            (quote!(0x0_0_0_1), parse_quote!([0u8, 1u8])),
+            (quote!(0x0001E1), parse_quote!([0u8, 1u8])),
             // Base 2.
             (quote!(0b1), parse_quote!([1u8])),
             (quote!(0b11), parse_quote!([3u8])),
@@ -119,6 +148,11 @@ mod test {
             (quote!(0b0000001), parse_quote!([1u8])),
             (quote!(0b00000001), parse_quote!([1u8])),
             (quote!(0b000000001), parse_quote!([0u8, 1u8])),
+            // Base 8.
+            (quote!(0o377), parse_quote!([255u8])),
+            (quote!(0o0377), parse_quote!([255u8])),
+            (quote!(0o00377), parse_quote!([255u8])),
+            (quote!(0o400), parse_quote!([1u8, 0u8])),
         ];
         for (i, t) in table.iter().enumerate() {
             let tokens = bytes2(t.0.clone());
