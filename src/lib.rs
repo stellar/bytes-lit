@@ -128,7 +128,6 @@ mod test {
             (quote!(0x01), parse_quote!([1u8])),
             (quote!(0x0001), parse_quote!([0u8, 1u8])),
             (quote!(0x0_0_0_1), parse_quote!([0u8, 1u8])),
-            (quote!(0x0001E1), parse_quote!([0u8, 1u8])),
             // Base 2.
             (quote!(0b1), parse_quote!([1u8])),
             (quote!(0b11), parse_quote!([3u8])),
@@ -148,7 +147,6 @@ mod test {
             (quote!(0b0000001), parse_quote!([1u8])),
             (quote!(0b00000001), parse_quote!([1u8])),
             (quote!(0b000000001), parse_quote!([0u8, 1u8])),
-            // Base 8.
             (quote!(0o377), parse_quote!([255u8])),
             (quote!(0o0377), parse_quote!([255u8])),
             (quote!(0o00377), parse_quote!([255u8])),
