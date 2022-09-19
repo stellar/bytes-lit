@@ -8,7 +8,7 @@ use num_bigint::BigUint;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::LitInt;
+use syn::{Error, LitInt};
 
 extern crate proc_macro;
 
@@ -19,8 +19,8 @@ extern crate proc_macro;
 /// The following integer literal forms are supported, preserve leading zeros in
 /// the final byte representation and always return a consistent number of bytes
 /// given the number of digits inputed.
-/// - Base 2 (binary)
 /// - Base 16 (hex)
+/// - Base 2 (binary)
 ///
 /// For integer literal forms that preserve leading zeros, zeros on the front of
 /// the number are preserved as zeros in the final bytes. For example: `0x0001`
@@ -83,16 +83,35 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
     // Remove any leading prefix that indicates the base, and use the base to
     // determine how many bits per leading zero needs to be prefilled into the
     // bytes generated.
-    let (bits_per_digit, remainder) = match normalized.as_bytes() {
-        [b'0', b'x', r @ ..] => (Some(4), r),
-        [b'0', b'b', r @ ..] => (Some(1), r),
-        [b'0', b'o', r @ ..] | [r @ ..] => (None, r),
+    let (form, bits_per_digit, remainder) = match normalized.as_bytes() {
+        [b'0', b'x', r @ ..] => ("hex", Some(4), r),
+        [b'0', b'b', r @ ..] => ("binary", Some(1), r),
+        [b'0', b'o', r @ ..] => ("octal", None, r),
+        [r @ ..] => ("decimal", None, r),
     };
 
     // Count the leading zero bits by counting the number of leading zeros and
     // multiplying by the bits per digit.
     let leading_zero_count = remainder.iter().take_while(|d| **d == b'0').count();
-    let leading_zero_bits = leading_zero_count * bits_per_digit.unwrap_or(0);
+    let leading_zero_bits = if let Some(bits_per_digit) = bits_per_digit {
+        leading_zero_count
+            .checked_mul(bits_per_digit)
+            .expect("overflow")
+    } else if leading_zero_count > 0 {
+        // If there are leading zeros without a bits per digit error, since a
+        // caller may expect the zeros to be preserved, and so it is better for
+        // us to error. They can proceed by removing the zeros.
+        return Error::new(
+            lit.span(),
+            format!(
+                "leading zeros are not preserved or supported on integer literals in {} form",
+                form,
+            ),
+        )
+        .to_compile_error();
+    } else {
+        0
+    };
 
     // Convert the integer literal into a base10 number in a string. Any leading
     // zeros are discarded.
@@ -100,7 +119,7 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
 
     // Convert the string base10 numbers into a big integer. The conversion
     // should never fail because syn::LitInt already validates the integer.
-    let int = BigUint::from_str(base10).unwrap();
+    let int = BigUint::from_str(base10).expect("valid integer");
     let int_bits: usize = int.bits().try_into().expect("overflow");
     let int_bytes = int.to_bytes_be();
     let int_len = int_bytes.len();
@@ -120,71 +139,6 @@ mod test {
     use proc_macro2::Span;
     use quote::quote;
     use syn::{parse_quote, Error, ExprArray};
-
-    #[test]
-    fn leading_zeros_preserved() {
-        let table: &[(_, ExprArray)] = &[
-            // Base 16.
-            (quote!(0x1), parse_quote!([1u8])),
-            (quote!(0x01), parse_quote!([1u8])),
-            (quote!(0x0001), parse_quote!([0u8, 1u8])),
-            (quote!(0x0_0_0_1), parse_quote!([0u8, 1u8])),
-            // Base 2.
-            (quote!(0b1), parse_quote!([1u8])),
-            (quote!(0b11), parse_quote!([3u8])),
-            (quote!(0b111), parse_quote!([7u8])),
-            (quote!(0b1111), parse_quote!([15u8])),
-            (quote!(0b11111), parse_quote!([31u8])),
-            (quote!(0b111111), parse_quote!([63u8])),
-            (quote!(0b1111111), parse_quote!([127u8])),
-            (quote!(0b11111111), parse_quote!([255u8])),
-            (quote!(0b111111111), parse_quote!([1u8, 255u8])),
-            (quote!(0b1), parse_quote!([1u8])),
-            (quote!(0b01), parse_quote!([1u8])),
-            (quote!(0b001), parse_quote!([1u8])),
-            (quote!(0b0001), parse_quote!([1u8])),
-            (quote!(0b00001), parse_quote!([1u8])),
-            (quote!(0b000001), parse_quote!([1u8])),
-            (quote!(0b0000001), parse_quote!([1u8])),
-            (quote!(0b00000001), parse_quote!([1u8])),
-            (quote!(0b000000001), parse_quote!([0u8, 1u8])),
-        ];
-        for (i, t) in table.iter().enumerate() {
-            let tokens = bytes2(t.0.clone());
-            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-            let expect = t.1.clone();
-            assert_eq!(parsed, expect, "table entry: {}", i);
-        }
-    }
-
-    #[test]
-    fn leading_zeros_prohibited() {
-        let table: &[(_, Result<ExprArray, Error>)] = &[
-            // Base 8.
-            (quote!(0o377), Ok(parse_quote!([255u8]))),
-            (quote!(0o0377), Err(Error::new(Span::call_site(), ""))),
-            (quote!(0o00377), Ok(parse_quote!([255u8]))),
-            (quote!(0o400), Ok(parse_quote!([1u8, 0u8]))),
-            // Base 10.
-            (quote!(377), Ok(parse_quote!([255u8]))),
-            (quote!(0377), Ok(parse_quote!([255u8]))),
-            (quote!(00377), Ok(parse_quote!([255u8]))),
-            (quote!(400), Ok(parse_quote!([1u8, 0u8]))),
-        ];
-        for (i, t) in table.iter().enumerate() {
-            let tokens = bytes2(t.0.clone());
-            let parsed = syn::parse2::<ExprArray>(tokens);
-            match t.1.clone() {
-                Ok(expect) => assert_eq!(parsed.unwrap(), expect, "table entry: {}", i),
-                Err(e) => assert_eq!(
-                    parsed.unwrap_err().to_compile_error().to_string(),
-                    e.to_compile_error().to_string(),
-                    "table entry: {}",
-                    i
-                ),
-            };
-        }
-    }
 
     #[test]
     fn hex() {
@@ -225,5 +179,74 @@ mod test {
             1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8
         ]);
         assert_eq!(parsed, expect);
+    }
+
+    #[test]
+    fn leading_zeros_preserved() {
+        let table: &[(_, ExprArray)] = &[
+            // Base 16.
+            (quote!(0x1), parse_quote!([1u8])),
+            (quote!(0x01), parse_quote!([1u8])),
+            (quote!(0x0001), parse_quote!([0u8, 1u8])),
+            (quote!(0x0_0_0_1), parse_quote!([0u8, 1u8])),
+            // Base 2.
+            (quote!(0b1), parse_quote!([1u8])),
+            (quote!(0b11), parse_quote!([3u8])),
+            (quote!(0b111), parse_quote!([7u8])),
+            (quote!(0b1111), parse_quote!([15u8])),
+            (quote!(0b11111), parse_quote!([31u8])),
+            (quote!(0b111111), parse_quote!([63u8])),
+            (quote!(0b1111111), parse_quote!([127u8])),
+            (quote!(0b11111111), parse_quote!([255u8])),
+            (quote!(0b111111111), parse_quote!([1u8, 255u8])),
+            (quote!(0b1), parse_quote!([1u8])),
+            (quote!(0b01), parse_quote!([1u8])),
+            (quote!(0b001), parse_quote!([1u8])),
+            (quote!(0b0001), parse_quote!([1u8])),
+            (quote!(0b00001), parse_quote!([1u8])),
+            (quote!(0b000001), parse_quote!([1u8])),
+            (quote!(0b0000001), parse_quote!([1u8])),
+            (quote!(0b00000001), parse_quote!([1u8])),
+            (quote!(0b000000001), parse_quote!([0u8, 1u8])),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytes2(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn leading_zeros_prohibited() {
+        let table: &[(_, Result<ExprArray, Error>)] = &[
+            // Base 8.
+            (quote!(0o377), Ok(parse_quote!([255u8]))),
+            (quote!(0o0377), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in octal form"))),
+            (quote!(0o00377), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in octal form"))),
+            (quote!(0o400), Ok(parse_quote!([1u8, 0u8]))),
+            // Base 10.
+            (quote!(255), Ok(parse_quote!([255u8]))),
+            (quote!(0255), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in decimal form"))),
+            (quote!(00255), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in decimal form"))),
+            (quote!(256), Ok(parse_quote!([1u8, 0u8]))),
+        ];
+        for (i, t) in table.iter().enumerate() {
+            let tokens = bytes2(t.0.clone());
+            match t.1.clone() {
+                Ok(expect) => {
+                    let parsed = syn::parse2::<ExprArray>(tokens);
+                    assert_eq!(parsed.unwrap(), expect, "table entry: {}", i);
+                }
+                Err(e) => {
+                    assert_eq!(
+                        tokens.to_string(),
+                        e.to_compile_error().to_string(),
+                        "table entry: {}",
+                        i
+                    );
+                }
+            };
+        }
     }
 }
