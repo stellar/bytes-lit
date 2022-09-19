@@ -117,11 +117,12 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
 mod test {
     use crate::bytes2;
     use pretty_assertions::assert_eq;
+    use proc_macro2::Span;
     use quote::quote;
-    use syn::{parse_quote, ExprArray};
+    use syn::{parse_quote, Error, ExprArray};
 
     #[test]
-    fn leading_zeros() {
+    fn leading_zeros_preserved() {
         let table: &[(_, ExprArray)] = &[
             // Base 16.
             (quote!(0x1), parse_quote!([1u8])),
@@ -147,16 +148,41 @@ mod test {
             (quote!(0b0000001), parse_quote!([1u8])),
             (quote!(0b00000001), parse_quote!([1u8])),
             (quote!(0b000000001), parse_quote!([0u8, 1u8])),
-            (quote!(0o377), parse_quote!([255u8])),
-            (quote!(0o0377), parse_quote!([255u8])),
-            (quote!(0o00377), parse_quote!([255u8])),
-            (quote!(0o400), parse_quote!([1u8, 0u8])),
         ];
         for (i, t) in table.iter().enumerate() {
             let tokens = bytes2(t.0.clone());
             let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
             let expect = t.1.clone();
             assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn leading_zeros_prohibited() {
+        let table: &[(_, Result<ExprArray, Error>)] = &[
+            // Base 8.
+            (quote!(0o377), Ok(parse_quote!([255u8]))),
+            (quote!(0o0377), Err(Error::new(Span::call_site(), ""))),
+            (quote!(0o00377), Ok(parse_quote!([255u8]))),
+            (quote!(0o400), Ok(parse_quote!([1u8, 0u8]))),
+            // Base 10.
+            (quote!(377), Ok(parse_quote!([255u8]))),
+            (quote!(0377), Ok(parse_quote!([255u8]))),
+            (quote!(00377), Ok(parse_quote!([255u8]))),
+            (quote!(400), Ok(parse_quote!([1u8, 0u8]))),
+        ];
+        for (i, t) in table.iter().enumerate() {
+            let tokens = bytes2(t.0.clone());
+            let parsed = syn::parse2::<ExprArray>(tokens);
+            match t.1.clone() {
+                Ok(expect) => assert_eq!(parsed.unwrap(), expect, "table entry: {}", i),
+                Err(e) => assert_eq!(
+                    parsed.unwrap_err().to_compile_error().to_string(),
+                    e.to_compile_error().to_string(),
+                    "table entry: {}",
+                    i
+                ),
+            };
         }
     }
 
