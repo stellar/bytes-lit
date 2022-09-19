@@ -82,8 +82,9 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
 
     // Remove any leading prefix that indicates the base, and use the base to
     // determine how many bits per leading zero needs to be prefilled into the
-    // bytes generated.
-    let (form, bits_per_digit, remainder) = match normalized.as_bytes() {
+    // bytes generated. If bits_per_digit is None, leading zero digits are
+    // unsupported.
+    let (form, bits_per_zero_digit, remainder) = match normalized.as_bytes() {
         [b'0', b'x', r @ ..] => ("hex", Some(4), r),
         [b'0', b'b', r @ ..] => ("binary", Some(1), r),
         [b'0', b'o', r @ ..] => ("octal", None, r),
@@ -93,7 +94,7 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
     // Count the leading zero bits by counting the number of leading zeros and
     // multiplying by the bits per digit.
     let leading_zero_count = remainder.iter().take_while(|d| **d == b'0').count();
-    let leading_zero_bits = if let Some(bits_per_digit) = bits_per_digit {
+    let leading_zero_bits = if let Some(bits_per_digit) = bits_per_zero_digit {
         leading_zero_count
             .checked_mul(bits_per_digit)
             .expect("overflow")
@@ -192,6 +193,10 @@ mod test {
             (quote!(0x01), parse_quote!([1u8])),
             (quote!(0x0001), parse_quote!([0u8, 1u8])),
             (quote!(0x0_0_0_1), parse_quote!([0u8, 1u8])),
+            (quote!(0x1u32), parse_quote!([1u8])),
+            (quote!(0x01u32), parse_quote!([1u8])),
+            (quote!(0x0001u32), parse_quote!([0u8, 1u8])),
+            (quote!(0x0_0_0_1u32), parse_quote!([0u8, 1u8])),
             // Base 2.
             (quote!(0b1), parse_quote!([1u8])),
             (quote!(0b11), parse_quote!([3u8])),
