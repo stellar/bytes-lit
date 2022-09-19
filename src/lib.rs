@@ -117,13 +117,16 @@ fn bytes2(input: TokenStream2) -> TokenStream2 {
     // zeros are discarded.
     let base10 = lit.base10_digits();
 
-    // Convert the string base10 numbers into a big integer. The conversion
-    // should never fail because syn::LitInt already validates the integer.
+    // Convert the string of base10 numbers into a slice of bytes, via a big
+    // integer. The conversion should never fail because syn::LitInt already
+    // validated the integer.
     let int = BigUint::from_str(base10).expect("valid integer");
     let int_bits: usize = int.bits().try_into().expect("overflow");
     let int_bytes = int.to_bytes_be();
     let int_len = int_bytes.len();
 
+    // Create the final byte slice, which has length of the leading zero bytes,
+    // followed by the big integer bytes.
     let total_bits = leading_zero_bits.checked_add(int_bits).expect("overflow");
     let total_len = (total_bits.checked_add(7).expect("overflow")) / 8;
     let mut total_bytes: Vec<u8> = vec![0; total_len];
