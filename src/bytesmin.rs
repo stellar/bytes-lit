@@ -3,14 +3,17 @@ use std::str::FromStr;
 use num_bigint::BigUint;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::LitInt;
+use syn::{Error, LitInt};
 
 pub fn bytesmin(input: TokenStream2) -> TokenStream2 {
     let lit = match syn::parse2::<LitInt>(input) {
         Ok(lit) => lit,
         Err(e) => return e.to_compile_error(),
     };
-    let int = BigUint::from_str(lit.base10_digits()).expect("valid integer");
+    let int = match BigUint::from_str(lit.base10_digits()) {
+        Ok(int) => int,
+        Err(_) => return Error::new(lit.span(), "negative values unsupported").to_compile_error(),
+    };
     let bytes = int.to_bytes_be();
     quote! { [#(#bytes),*] }
 }
@@ -19,8 +22,18 @@ pub fn bytesmin(input: TokenStream2) -> TokenStream2 {
 mod test {
     use super::bytesmin;
     use pretty_assertions::assert_eq;
+    use proc_macro2::Span;
     use quote::quote;
-    use syn::{parse_quote, ExprArray};
+    use syn::{parse_quote, Error, ExprArray};
+
+    #[test]
+    fn neg() {
+        let tokens = bytesmin(quote! {-0x1});
+        let expect = Error::new(Span::call_site(), "negative values unsupported")
+            .to_compile_error()
+            .to_string();
+        assert_eq!(tokens.to_string(), expect);
+    }
 
     #[test]
     fn hex() {

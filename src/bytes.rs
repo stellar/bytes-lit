@@ -11,11 +11,20 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
         Err(e) => return e.to_compile_error(),
     };
 
+    // Convert the integer literal into a base10 string, and into a slice of
+    // bytes, via a big integer. The conversion should never fail because
+    // syn::LitInt already validated the integer, unless the value is negative.
+    // Any leading zeroes are discarded.
+    let int = match BigUint::from_str(lit.base10_digits()) {
+        Ok(int) => int,
+        Err(_) => return Error::new(lit.span(), "negative values unsupported").to_compile_error(),
+    };
+
     // Get the raw integer literal as it appears in the token stream.
     let raw = lit.to_string();
 
-    // Remove leading negative sign, and any underscores between digits.
-    let normalized = raw.replace(['-', '_'], "");
+    // Remove underscores between digits.
+    let normalized = raw.replace('_', "");
 
     // Remove any leading prefix that indicates the base, and use the base to
     // determine how many bits per leading zero needs to be prefilled into the
@@ -51,20 +60,11 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
         0
     };
 
-    // Convert the integer literal into a base10 number in a string. Any leading
-    // zeros are discarded.
-    let base10 = lit.base10_digits();
-
-    // Convert the string of base10 numbers into a slice of bytes, via a big
-    // integer. The conversion should never fail because syn::LitInt already
-    // validated the integer.
-    let int = BigUint::from_str(base10).expect("valid integer");
+    // Create the final byte slice, which has length of the leading zero bytes,
+    // followed by the big integer bytes.
     let int_bits: usize = int.bits().try_into().expect("overflow");
     let int_bytes = int.to_bytes_be();
     let int_len = int_bytes.len();
-
-    // Create the final byte slice, which has length of the leading zero bytes,
-    // followed by the big integer bytes.
     let total_bits = leading_zero_bits.checked_add(int_bits).expect("overflow");
     let total_len = (total_bits.checked_add(7).expect("overflow")) / 8;
     let mut total_bytes: Vec<u8> = vec![0; total_len];
@@ -80,6 +80,15 @@ mod test {
     use proc_macro2::Span;
     use quote::quote;
     use syn::{parse_quote, Error, ExprArray};
+
+    #[test]
+    fn neg() {
+        let tokens = bytes(quote! {-0x1});
+        let expect = Error::new(Span::call_site(), "negative values unsupported")
+            .to_compile_error()
+            .to_string();
+        assert_eq!(tokens.to_string(), expect);
+    }
 
     #[test]
     fn hex() {
