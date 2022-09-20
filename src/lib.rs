@@ -35,26 +35,26 @@ extern crate proc_macro;
 ///
 /// ### Examples
 ///
-/// ```ignore
-/// let bytes = bytes!(1);
+/// ```
+/// let bytes = bytes_lit::bytes!(1);
 /// assert_eq!(bytes, [1]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(9);
-/// assert_eq!(bytes, [1]);
+/// ```
+/// let bytes = bytes_lit::bytes!(9);
+/// assert_eq!(bytes, [9]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(0xfded3f55dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
+/// ```
+/// let bytes = bytes_lit::bytes!(0xfded3f55dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
 /// assert_eq!(bytes, [
 ///     253, 237, 63, 85, 222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114,
 ///     250, 111, 250, 174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
 /// ]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(0x00000000dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
+/// ```
+/// let bytes = bytes_lit::bytes!(0x00000000dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
 /// assert_eq!(bytes, [
 ///     0, 0, 0, 0, 222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114,
 ///     250, 111, 250, 174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
@@ -76,26 +76,26 @@ pub fn bytes(input: TokenStream) -> TokenStream {
 ///
 /// ### Examples
 ///
-/// ```ignore
-/// let bytes = bytes!(1);
+/// ```
+/// let bytes = bytes_lit::bytesmin!(1);
 /// assert_eq!(bytes, [1]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(9);
-/// assert_eq!(bytes, [1]);
+/// ```
+/// let bytes = bytes_lit::bytesmin!(9);
+/// assert_eq!(bytes, [9]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(0xfded3f55dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
+/// ```
+/// let bytes = bytes_lit::bytesmin!(0xfded3f55dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
 /// assert_eq!(bytes, [
 ///     253, 237, 63, 85, 222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114,
 ///     250, 111, 250, 174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
 /// ]);
 /// ```
 ///
-/// ```ignore
-/// let bytes = bytes!(0x00000000dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
+/// ```
+/// let bytes = bytes_lit::bytesmin!(0x00000000dec47250a52a8c0bb7038e72fa6ffaae33562f77cd2b629ef7fd424d);
 /// assert_eq!(bytes, [
 ///     222, 196, 114, 80, 165, 42, 140, 11, 183, 3, 142, 114, 250, 111, 250,
 ///     174, 51, 86, 47, 119, 205, 43, 98, 158, 247, 253, 66, 77,
