@@ -28,38 +28,25 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
 
     // Remove any leading prefix that indicates the base, and use the base to
     // determine how many bits per leading zero needs to be prefilled into the
-    // bytes generated. If bits_per_digit is None, leading zero digits are
-    // unsupported.
-    let (form, bits_per_zero_digit, remainder) = match normalized.as_bytes() {
-        [b'0', b'x', r @ ..] => ("hex", Some(4), r),
-        [b'0', b'b', r @ ..] => ("binary", Some(1), r),
-        [b'0', b'o', r @ ..] => ("octal", None, r),
-        [r @ ..] => ("decimal", None, r),
+    // bytes generated.
+    let (bits_per_zero_digit, remainder) = match normalized.as_bytes() {
+        [b'0', b'x', r @ ..] => (4, r),
+        [b'0', b'b', r @ ..] => (1, r),
+        _ => {
+            return Error::new(
+                lit.span(),
+                "only hex (0x) and binary (0b) integer literals are supported",
+            )
+            .to_compile_error();
+        }
     };
 
     // Count the leading zero bits by counting the number of leading zeros and
     // multiplying by the bits per digit.
     let leading_zero_count = remainder.iter().take_while(|d| **d == b'0').count();
-    let leading_zero_bits = if let Some(bits_per_digit) = bits_per_zero_digit {
-        leading_zero_count
-            .checked_mul(bits_per_digit)
-            .expect("overflow")
-    } else if leading_zero_count > 0 && remainder.len() > 1 {
-        // If there are leading zeros without a bits per digit error, since a
-        // caller may expect the zeros to be preserved, and so it is better for
-        // us to error. They can proceed by removing the zeros. A single digit
-        // `0` is permitted as it is unambiguously the value zero.
-        return Error::new(
-            lit.span(),
-            format!(
-                "leading zeros are not preserved or supported on integer literals in {} form",
-                form,
-            ),
-        )
-        .to_compile_error();
-    } else {
-        0
-    };
+    let leading_zero_bits = leading_zero_count
+        .checked_mul(bits_per_zero_digit)
+        .expect("overflow");
 
     // Create the final byte slice, which has length of the leading zero bytes,
     // followed by the big integer bytes.
@@ -68,7 +55,6 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
     let int_len = int_bytes.len();
     let total_bits = leading_zero_bits.checked_add(int_bits).expect("overflow");
     let total_len = (total_bits.checked_add(7).expect("overflow")) / 8;
-    let total_len = total_len.max(int_len);
     let mut total_bytes: Vec<u8> = vec![0; total_len];
     total_bytes[total_len - int_len..].copy_from_slice(&int_bytes);
 
@@ -116,21 +102,38 @@ mod test {
     }
 
     #[test]
-    fn base10() {
-        let tokens = bytes(quote! {340_282_366_920_938_463_463_374_607_431_768_211_455u128});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([
-            255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
-            255u8, 255u8, 255u8, 255u8
-        ]);
-        assert_eq!(parsed, expect);
-
-        let tokens = bytes(quote! {340_282_366_920_938_463_463_374_607_431_768_211_456});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([
-            1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8
-        ]);
-        assert_eq!(parsed, expect);
+    fn decimal_and_octal_unsupported() {
+        let table: &[_] = &[
+            // Decimal.
+            quote!(0),
+            quote!(1),
+            quote!(9),
+            quote!(255),
+            quote!(256),
+            quote!(0255),
+            quote!(00255),
+            quote!(00),
+            quote!(340_282_366_920_938_463_463_374_607_431_768_211_455u128),
+            quote!(340_282_366_920_938_463_463_374_607_431_768_211_456),
+            // Octal.
+            quote!(0o0),
+            quote!(0o1),
+            quote!(0o377),
+            quote!(0o0377),
+            quote!(0o00377),
+            quote!(0o00),
+            quote!(0o400),
+        ];
+        let expect = Error::new(
+            Span::call_site(),
+            "only hex (0x) and binary (0b) integer literals are supported",
+        )
+        .to_compile_error()
+        .to_string();
+        for (i, input) in table.iter().enumerate() {
+            let tokens = bytes(input.clone());
+            assert_eq!(tokens.to_string(), expect, "table entry: {}", i);
+        }
     }
 
     #[test]
@@ -176,12 +179,10 @@ mod test {
     #[test]
     fn zero() {
         let table: &[(_, ExprArray)] = &[
-            (quote!(0), parse_quote!([0u8])),
             (quote!(0x0), parse_quote!([0u8])),
             (quote!(0x00), parse_quote!([0u8])),
             (quote!(0b0), parse_quote!([0u8])),
             (quote!(0b00000000), parse_quote!([0u8])),
-            (quote!(0o0), parse_quote!([0u8])),
         ];
         for (i, t) in table.iter().cloned().enumerate() {
             let tokens = bytes(t.0);
@@ -197,31 +198,20 @@ mod test {
             // u8 max
             (quote!(0xff), parse_quote!([255u8])),
             (quote!(0b11111111), parse_quote!([255u8])),
-            (quote!(0o377), parse_quote!([255u8])),
-            (quote!(255), parse_quote!([255u8])),
             // u8 max + 1
             (quote!(0x100), parse_quote!([1u8, 0u8])),
             (quote!(0b100000000), parse_quote!([1u8, 0u8])),
-            (quote!(0o400), parse_quote!([1u8, 0u8])),
-            (quote!(256), parse_quote!([1u8, 0u8])),
             // u16 max
             (quote!(0xffff), parse_quote!([255u8, 255u8])),
-            (quote!(65535), parse_quote!([255u8, 255u8])),
             // u16 max + 1
             (quote!(0x10000), parse_quote!([1u8, 0u8, 0u8])),
-            (quote!(65536), parse_quote!([1u8, 0u8, 0u8])),
             // u32 max
             (
                 quote!(0xffffffff),
                 parse_quote!([255u8, 255u8, 255u8, 255u8]),
             ),
-            (
-                quote!(4294967295),
-                parse_quote!([255u8, 255u8, 255u8, 255u8]),
-            ),
             // u32 max + 1
             (quote!(0x100000000), parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8])),
-            (quote!(4294967296), parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8])),
             // u64 max
             (
                 quote!(0xffffffffffffffff),
@@ -260,10 +250,8 @@ mod test {
     #[test]
     fn one() {
         let table: &[(_, ExprArray)] = &[
-            (quote!(1), parse_quote!([1u8])),
             (quote!(0x1), parse_quote!([1u8])),
             (quote!(0b1), parse_quote!([1u8])),
-            (quote!(0o1), parse_quote!([1u8])),
         ];
         for (i, t) in table.iter().cloned().enumerate() {
             let tokens = bytes(t.0);
@@ -292,40 +280,5 @@ mod test {
             .to_compile_error()
             .to_string();
         assert_eq!(tokens.to_string(), expect);
-    }
-
-    #[test]
-    fn leading_zeros_prohibited() {
-        let table: &[(_, Result<ExprArray, Error>)] = &[
-            // Base 8.
-            (quote!(0o377), Ok(parse_quote!([255u8]))),
-            (quote!(0o0377), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in octal form"))),
-            (quote!(0o00377), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in octal form"))),
-            (quote!(0o00), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in octal form"))),
-            (quote!(0o400), Ok(parse_quote!([1u8, 0u8]))),
-            // Base 10.
-            (quote!(255), Ok(parse_quote!([255u8]))),
-            (quote!(0255), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in decimal form"))),
-            (quote!(00255), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in decimal form"))),
-            (quote!(00), Err(Error::new(Span::call_site(), "leading zeros are not preserved or supported on integer literals in decimal form"))),
-            (quote!(256), Ok(parse_quote!([1u8, 0u8]))),
-        ];
-        for (i, t) in table.iter().enumerate() {
-            let tokens = bytes(t.0.clone());
-            match t.1.clone() {
-                Ok(expect) => {
-                    let parsed = syn::parse2::<ExprArray>(tokens);
-                    assert_eq!(parsed.unwrap(), expect, "table entry: {}", i);
-                }
-                Err(e) => {
-                    assert_eq!(
-                        tokens.to_string(),
-                        e.to_compile_error().to_string(),
-                        "table entry: {}",
-                        i
-                    );
-                }
-            };
-        }
     }
 }
