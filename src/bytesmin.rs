@@ -10,10 +10,25 @@ pub fn bytesmin(input: TokenStream2) -> TokenStream2 {
         Ok(lit) => lit,
         Err(e) => return e.to_compile_error(),
     };
-    let int = match BigUint::from_str(lit.base10_digits()) {
-        Ok(int) => int,
-        Err(_) => return Error::new(lit.span(), "negative values unsupported").to_compile_error(),
-    };
+
+    // Reject unsupported literal forms.
+    let raw = lit.to_string();
+    let normalized = raw.replace('_', "");
+    match normalized.as_bytes() {
+        [b'0', b'x', ..] | [b'0', b'b', ..] => {}
+        _ => {
+            return Error::new(
+                lit.span(),
+                "only positive hex (0x) and binary (0b) integer literals are supported",
+            )
+            .to_compile_error();
+        }
+    }
+
+    // The conversion should never fail because syn::LitInt already validated
+    // the integer, and the form check above ensures only non-negative hex/binary
+    // literals reach here.
+    let int = BigUint::from_str(lit.base10_digits()).expect("valid hex or binary literal");
     let bytes = int.to_bytes_be();
     quote! { [#(#bytes),*] }
 }
@@ -29,9 +44,12 @@ mod test {
     #[test]
     fn neg() {
         let tokens = bytesmin(quote! {-0x1});
-        let expect = Error::new(Span::call_site(), "negative values unsupported")
-            .to_compile_error()
-            .to_string();
+        let expect = Error::new(
+            Span::call_site(),
+            "only positive hex (0x) and binary (0b) integer literals are supported",
+        )
+        .to_compile_error()
+        .to_string();
         assert_eq!(tokens.to_string(), expect);
     }
 
@@ -59,21 +77,144 @@ mod test {
     }
 
     #[test]
-    fn base10() {
-        let tokens = bytesmin(quote! {340_282_366_920_938_463_463_374_607_431_768_211_455u128});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([
-            255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
-            255u8, 255u8, 255u8, 255u8
-        ]);
-        assert_eq!(parsed, expect);
+    fn decimal_and_octal_unsupported() {
+        let table: &[_] = &[
+            // Decimal.
+            quote!(0),
+            quote!(1),
+            quote!(9),
+            quote!(255),
+            quote!(256),
+            quote!(0255),
+            quote!(00255),
+            quote!(00),
+            quote!(340_282_366_920_938_463_463_374_607_431_768_211_455u128),
+            quote!(340_282_366_920_938_463_463_374_607_431_768_211_456),
+            // Octal.
+            quote!(0o0),
+            quote!(0o1),
+            quote!(0o377),
+            quote!(0o0377),
+            quote!(0o00377),
+            quote!(0o00),
+            quote!(0o400),
+        ];
+        let expect = Error::new(
+            Span::call_site(),
+            "only positive hex (0x) and binary (0b) integer literals are supported",
+        )
+        .to_compile_error()
+        .to_string();
+        for (i, input) in table.iter().enumerate() {
+            let tokens = bytesmin(input.clone());
+            assert_eq!(tokens.to_string(), expect, "table entry: {}", i);
+        }
+    }
 
-        let tokens = bytesmin(quote! {340_282_366_920_938_463_463_374_607_431_768_211_456});
-        let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
-        let expect = syn::parse_quote!([
-            1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8
-        ]);
-        assert_eq!(parsed, expect);
+    #[test]
+    fn zero() {
+        let table: &[(_, ExprArray)] = &[
+            (quote!(0x0), parse_quote!([0u8])),
+            (quote!(0x00), parse_quote!([0u8])),
+            (quote!(0b0), parse_quote!([0u8])),
+            (quote!(0b00000000), parse_quote!([0u8])),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn byte_boundaries() {
+        let table: &[(_, ExprArray)] = &[
+            // u8 max
+            (quote!(0xff), parse_quote!([255u8])),
+            (quote!(0b11111111), parse_quote!([255u8])),
+            // u8 max + 1
+            (quote!(0x100), parse_quote!([1u8, 0u8])),
+            (quote!(0b100000000), parse_quote!([1u8, 0u8])),
+            // u16 max
+            (quote!(0xffff), parse_quote!([255u8, 255u8])),
+            // u16 max + 1
+            (quote!(0x10000), parse_quote!([1u8, 0u8, 0u8])),
+            // u32 max
+            (
+                quote!(0xffffffff),
+                parse_quote!([255u8, 255u8, 255u8, 255u8]),
+            ),
+            // u32 max + 1
+            (quote!(0x100000000), parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8])),
+            // u64 max
+            (
+                quote!(0xffffffffffffffff),
+                parse_quote!([255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8]),
+            ),
+            // u64 max + 1
+            (
+                quote!(0x10000000000000000),
+                parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8]),
+            ),
+            // u128 max
+            (
+                quote!(0xffffffffffffffffffffffffffffffff),
+                parse_quote!([
+                    255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+                    255u8, 255u8, 255u8, 255u8, 255u8
+                ]),
+            ),
+            // u128 max + 1
+            (
+                quote!(0x100000000000000000000000000000000),
+                parse_quote!([
+                    1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                    0u8
+                ]),
+            ),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn one() {
+        let table: &[(_, ExprArray)] = &[
+            (quote!(0x1), parse_quote!([1u8])),
+            (quote!(0b1), parse_quote!([1u8])),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn empty_input() {
+        let tokens = bytesmin(quote! {});
+        let expect = Error::new(
+            Span::call_site(),
+            "unexpected end of input, expected integer literal",
+        )
+        .to_compile_error()
+        .to_string();
+        assert_eq!(tokens.to_string(), expect);
+    }
+
+    #[test]
+    fn non_integer_input() {
+        let tokens = bytesmin(quote! {"hello"});
+        let expect = Error::new(Span::call_site(), "expected integer literal")
+            .to_compile_error()
+            .to_string();
+        assert_eq!(tokens.to_string(), expect);
     }
 
     #[test]
@@ -107,16 +248,6 @@ mod test {
             (quote!(0b0000001), parse_quote!([1u8])),
             (quote!(0b00000001), parse_quote!([1u8])),
             (quote!(0b000000001), parse_quote!([1u8])),
-            // Base 8.
-            (quote!(0o377), parse_quote!([255u8])),
-            (quote!(0o0377), parse_quote!([255u8])),
-            (quote!(0o00377), parse_quote!([255u8])),
-            (quote!(0o400), parse_quote!([1u8, 0u8])),
-            // Base 10.
-            (quote!(255), parse_quote!([255u8])),
-            (quote!(0255), parse_quote!([255u8])),
-            (quote!(00255), parse_quote!([255u8])),
-            (quote!(256), parse_quote!([1u8, 0u8])),
         ];
         for (i, t) in table.iter().cloned().enumerate() {
             let tokens = bytesmin(t.0);
