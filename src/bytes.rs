@@ -11,15 +11,6 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
         Err(e) => return e.to_compile_error(),
     };
 
-    // Convert the integer literal into a base10 string, and into a slice of
-    // bytes, via a big integer. The conversion should never fail because
-    // syn::LitInt already validated the integer, unless the value is negative.
-    // Any leading zeroes are discarded.
-    let int = match BigUint::from_str(lit.base10_digits()) {
-        Ok(int) => int,
-        Err(_) => return Error::new(lit.span(), "negative values unsupported").to_compile_error(),
-    };
-
     // Get the raw integer literal as it appears in the token stream.
     let raw = lit.to_string();
 
@@ -35,11 +26,17 @@ pub fn bytes(input: TokenStream2) -> TokenStream2 {
         _ => {
             return Error::new(
                 lit.span(),
-                "only hex (0x) and binary (0b) integer literals are supported",
+                "only positive hex (0x) and binary (0b) integer literals are supported",
             )
             .to_compile_error();
         }
     };
+
+    // Convert the integer literal into a base10 string, and into a slice of
+    // bytes, via a big integer. The conversion should never fail because
+    // syn::LitInt already validated the integer, and the form check above
+    // ensures only non-negative hex/binary literals reach here.
+    let int = BigUint::from_str(lit.base10_digits()).expect("valid hex or binary literal");
 
     // Count the leading zero bits by counting the number of leading zeros and
     // multiplying by the bits per digit.
@@ -72,9 +69,12 @@ mod test {
     #[test]
     fn neg() {
         let tokens = bytes(quote! {-0x1});
-        let expect = Error::new(Span::call_site(), "negative values unsupported")
-            .to_compile_error()
-            .to_string();
+        let expect = Error::new(
+            Span::call_site(),
+            "only positive hex (0x) and binary (0b) integer literals are supported",
+        )
+        .to_compile_error()
+        .to_string();
         assert_eq!(tokens.to_string(), expect);
     }
 
@@ -126,7 +126,7 @@ mod test {
         ];
         let expect = Error::new(
             Span::call_site(),
-            "only hex (0x) and binary (0b) integer literals are supported",
+            "only positive hex (0x) and binary (0b) integer literals are supported",
         )
         .to_compile_error()
         .to_string();
