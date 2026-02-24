@@ -77,6 +77,127 @@ mod test {
     }
 
     #[test]
+    fn zero() {
+        let table: &[(_, ExprArray)] = &[
+            (quote!(0), parse_quote!([0u8])),
+            (quote!(0x0), parse_quote!([0u8])),
+            (quote!(0x00), parse_quote!([0u8])),
+            (quote!(0b0), parse_quote!([0u8])),
+            (quote!(0b00000000), parse_quote!([0u8])),
+            (quote!(0o0), parse_quote!([0u8])),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn byte_boundaries() {
+        let table: &[(_, ExprArray)] = &[
+            // u8 max
+            (quote!(0xff), parse_quote!([255u8])),
+            (quote!(0b11111111), parse_quote!([255u8])),
+            (quote!(0o377), parse_quote!([255u8])),
+            (quote!(255), parse_quote!([255u8])),
+            // u8 max + 1
+            (quote!(0x100), parse_quote!([1u8, 0u8])),
+            (quote!(0b100000000), parse_quote!([1u8, 0u8])),
+            (quote!(0o400), parse_quote!([1u8, 0u8])),
+            (quote!(256), parse_quote!([1u8, 0u8])),
+            // u16 max
+            (quote!(0xffff), parse_quote!([255u8, 255u8])),
+            (quote!(65535), parse_quote!([255u8, 255u8])),
+            // u16 max + 1
+            (quote!(0x10000), parse_quote!([1u8, 0u8, 0u8])),
+            (quote!(65536), parse_quote!([1u8, 0u8, 0u8])),
+            // u32 max
+            (
+                quote!(0xffffffff),
+                parse_quote!([255u8, 255u8, 255u8, 255u8]),
+            ),
+            (
+                quote!(4294967295),
+                parse_quote!([255u8, 255u8, 255u8, 255u8]),
+            ),
+            // u32 max + 1
+            (quote!(0x100000000), parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8])),
+            (quote!(4294967296), parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8])),
+            // u64 max
+            (
+                quote!(0xffffffffffffffff),
+                parse_quote!([255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8]),
+            ),
+            // u64 max + 1
+            (
+                quote!(0x10000000000000000),
+                parse_quote!([1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8]),
+            ),
+            // u128 max
+            (
+                quote!(0xffffffffffffffffffffffffffffffff),
+                parse_quote!([
+                    255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8, 255u8,
+                    255u8, 255u8, 255u8, 255u8, 255u8
+                ]),
+            ),
+            // u128 max + 1
+            (
+                quote!(0x100000000000000000000000000000000),
+                parse_quote!([
+                    1u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,
+                    0u8
+                ]),
+            ),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn one() {
+        let table: &[(_, ExprArray)] = &[
+            (quote!(1), parse_quote!([1u8])),
+            (quote!(0x1), parse_quote!([1u8])),
+            (quote!(0b1), parse_quote!([1u8])),
+            (quote!(0o1), parse_quote!([1u8])),
+        ];
+        for (i, t) in table.iter().cloned().enumerate() {
+            let tokens = bytesmin(t.0);
+            let parsed = syn::parse2::<ExprArray>(tokens).unwrap();
+            let expect = t.1;
+            assert_eq!(parsed, expect, "table entry: {}", i);
+        }
+    }
+
+    #[test]
+    fn empty_input() {
+        let tokens = bytesmin(quote! {});
+        let expect = Error::new(
+            Span::call_site(),
+            "unexpected end of input, expected integer literal",
+        )
+        .to_compile_error()
+        .to_string();
+        assert_eq!(tokens.to_string(), expect);
+    }
+
+    #[test]
+    fn non_integer_input() {
+        let tokens = bytesmin(quote! {"hello"});
+        let expect = Error::new(Span::call_site(), "expected integer literal")
+            .to_compile_error()
+            .to_string();
+        assert_eq!(tokens.to_string(), expect);
+    }
+
+    #[test]
     fn leading_zeros_discarded() {
         let table: &[(_, ExprArray)] = &[
             // Base 16.
