@@ -1,6 +1,10 @@
 //! Bytes converts literals into an array of bytes.
 //!
 //! Currently supports only integer literals of unbounded size.
+//!
+//! The macros are intended for small byte inputs. There is no arbitrary limit,
+//! but very large inputs may result in long compilation times. For large amounts
+//! of bytes, store the bytes in a file and use [`include_bytes!`] instead.
 
 mod bytes;
 mod bytesmin;
@@ -21,6 +25,11 @@ extern crate proc_macro;
 /// as zeros in the final bytes. For example: `0x0001` will produce `[0, 1]`.
 ///
 /// Decimal and octal literal forms are not supported.
+///
+/// This macro is intended for small byte inputs. There is no arbitrary limit,
+/// but very large inputs may result in long compilation times. For large
+/// amounts of bytes, store the bytes in a file and use [`include_bytes!`]
+/// instead.
 ///
 /// ### Examples
 ///
@@ -65,6 +74,11 @@ pub fn bytes(input: TokenStream) -> TokenStream {
 /// Decimal and octal literal forms are not supported.
 ///
 /// To preserve leading zeros, use [`bytes!`].
+///
+/// This macro is intended for small byte inputs. There is no arbitrary limit,
+/// but very large inputs may result in long compilation times. For large
+/// amounts of bytes, store the bytes in a file and use [`include_bytes!`]
+/// instead.
 ///
 /// ### Examples
 ///
